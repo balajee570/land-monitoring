@@ -1,74 +1,69 @@
-# 🛰️ Jamabandi Land Monitor
+# खतियान 📜
 
-A Streamlit web app to **upload any Indian jamabandi / LPC / land-record PDF**,
-parse it into structured data, and **monitor the land on free satellite
-imagery** — with driving directions and site weather. Built entirely with
-**free, open-source Python libraries and open data services — no API keys**.
+**दादा जी पढ़ लेते थे। अब आप पढ़िए।**
 
-## Features
+Hindi-first Streamlit app jo aapko Indian land records (Bihar focus) **padhna
+sikhata hai** — 6-level ka structured course, searchable शब्दकोश, zameen
+calculator, aur ek AI **दस्तावेज़ डिकोडर** jo aapke khatiyan/jamabandi/kewala ki
+photo ko sirf explain hi nahi karta, **agli baar khud padhne ke surāg bhi
+deta hai** (teach-mode).
 
-| Tab | What it does |
-|-----|--------------|
-| 📄 **Record** | Parses the PDF (Hindi + English) into location fields, plots (khesra + rakba/area), applicant details, owners and dues. Export to CSV / JSON. Raw text always available. |
-| 🛰️ **Satellite** | Places the land on **Esri World Imagery** with OSM streets & labels. Per-plot markers with area-scaled footprints. Toggle **NASA MODIS true-color & NDVI vegetation** layers by date for change-over-time monitoring. |
-| 🧭 **Directions** | Driving route from any start point via the **OSRM** public server (turn-by-turn), with Google Maps / OpenStreetMap deep links and a straight-line fallback. |
-| 🌦️ **Site Conditions** | Current weather + 7-day temperature & rainfall outlook (**Open-Meteo**) — useful for agricultural land. |
+Personal-use MVP · single user · no auth, no payments, no limits · sab kuch
+local (`user_data/` mein progress).
 
-## Quick start
+## Setup
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+```
+
+API keys (sirf decoder ke liye zaroori — baaki app bina key ke poora chalta hai):
+
+```bash
+cp .streamlit/secrets.toml.example .streamlit/secrets.toml
+# phir secrets.toml mein apni keys daaliye
+```
+
+App in-app **🔐 सेटिंग** expander se bhi keys leta hai (sirf us session ke liye).
+
+## Run
+
+```bash
 streamlit run app.py
 ```
 
-Then open the local URL Streamlit prints, upload a jamabandi PDF in the sidebar,
-click **Locate on map**, and explore the tabs.
+## AI providers
 
-## How parsing works
+| Provider | Kaisa | Kitna time |
+|---|---|---|
+| **Claude (Anthropic)** | Single-call vision — photo seedha padhta hai | ~aadha minute |
+| **Sarvam** | Vision **batch** job se pehle text nikalta hai, phir `sarvam-105b` samjhata hai | 1–3 minute; 10 pages/PDF cap; 10 req/min rate limit |
 
-Indian land records have **no single format** (Bihar Bhumi, Bhulekh UP,
-MahaBhulekh, …) and their PDFs mix Devanagari and Latin scripts with custom
-font encodings. The pipeline is deliberately robust:
+- Anthropic key: [console.anthropic.com](https://console.anthropic.com) (~₹3–4/decode)
+- Sarvam key: [dashboard.sarvam.ai](https://dashboard.sarvam.ai)
 
-1. **`jamabandi/pdf_extract.py`** — extracts text with `pdfplumber`
-   (well-ordered, primary path). If `pdfplumber` is unavailable or yields
-   nothing, it falls back to…
-2. **`jamabandi/stdlib_pdf.py`** — a **zero-dependency** extractor that
-   decompresses PDF content streams and decodes glyphs through font
-   `/Differences` (`uniXXXX`) and `ToUnicode` CMaps, then groups text by
-   position. Handles the bilingual government PDFs that trip up naive readers.
-3. **`jamabandi/parser.py`** — bilingual, keyword/regex-driven extraction into a
-   `JamabandiRecord` dataclass. Every field is optional; Devanagari digits are
-   normalised and column-header words are filtered so fields are either correct
-   or honestly blank. Area (rakba) in एकड़/डिसमिल/हेक्टेयर is converted to hectares.
+## Troubleshooting
 
-## Important limitations
+- **PyMuPDF install error** → `pip install --upgrade pip` phir dobara
+  `pip install PyMuPDF`. (PDF preview/convert ke liye chahiye.)
+- **`sarvamai` missing** → `pip install sarvamai`
+- **Port busy** → `streamlit run app.py --server.port 8502`
 
-- **No GPS in jamabandi PDFs.** The map location comes from geocoding the
-  village/circle name (Nominatim), so it marks the **village centroid**, not the
-  exact parcel. Use the sidebar coordinate override, or your state's
-  **Bhu-Naksha** cadastral portal, for precise plot boundaries.
-- Plot circles indicate **approximate area**, not real plot shape.
-- Parsing is best-effort across formats; always cross-check against the source.
+## Privacy
 
-## Data sources (all free, keyless)
+Documents aapki machine se bahar **sirf aapke chune hue AI provider** ko jaate
+hain — aur kahin nahi. Course progress/streak local `user_data/` folder mein
+rehta hai; koi analytics/tracking nahi.
 
-Esri World Imagery · OpenStreetMap / Nominatim · NASA EOSDIS GIBS ·
-OSRM (router.project-osrm.org) · Open-Meteo.
-
-## Development
+## Dev
 
 ```bash
-python -m unittest discover -s tests -v   # run parser tests
-python -m py_compile app.py jamabandi/*.py services/*.py ui/*.py
+pip install -r requirements-dev.txt
+python -m pytest tests/ -q       # data integrity tests
+python eval_providers.py --dir ./eval_docs --providers anthropic,sarvam
 ```
 
-Project layout:
-
-```
-app.py                 Streamlit UI (Record / Satellite / Directions / Weather / Help)
-jamabandi/             PDF extraction + record parsing
-services/              geocode.py · routing.py · weather.py
-ui/maps.py             folium map builders (satellite, GIBS, routes)
-tests/                 parser tests against real decoded sample text
-```
+> 📜 Yeh app **shaikshanik jaankari** deta hai — vakil ki kanooni salah ka
+> vikalp nahi. Bade faisle se pehle yogya adhivakta se mashwara kijiye.
