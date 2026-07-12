@@ -1,9 +1,7 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-.env
+user_data/
 .streamlit/secrets.toml
-.DS_Store
-*.log
+__pycache__/
+*.pyc
+.venv/
+eval_results.csv
+eval_docs/

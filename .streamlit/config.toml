@@ -1,9 +1,14 @@
 [theme]
-primaryColor = "#2e7d32"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f1f8e9"
-textColor = "#1b1b1b"
+# खतियान — पुराने राजस्व दस्तावेज़ों की दुनिया से लिया गया रंग-संयोजन
+# कागज़: पुराना खतियान | लाल: बस्ता/कचहरी की मुहर | हरा: रसीदी टिकट | स्याही: रजिस्ट्रार की कलम
+primaryColor = "#A4243B"          # बस्ता लाल (red cloth bundle / court stamp)
+backgroundColor = "#F7F0DF"       # पुराना कागज़
+secondaryBackgroundColor = "#EFE4CB"  # register page
+textColor = "#2B1D12"             # गहरी स्याही
 font = "sans serif"
 
 [server]
-maxUploadSize = 50
+maxUploadSize = 25
+
+[browser]
+gatherUsageStats = false
