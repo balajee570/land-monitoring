@@ -90,12 +90,36 @@ def _sarvam_extract_text(client, file_bytes: bytes, filename: str) -> str:
         text_parts = []
         with zipfile.ZipFile(out_zip) as z:
             names = z.namelist()
-            preferred = [n for n in names if n.lower().endswith(".md")] or [
-                n for n in names if n.lower().endswith(".html")
-            ]
-            for n in preferred:
-                text_parts.append(z.read(n).decode("utf-8", errors="replace"))
+            md_names = [n for n in names if n.lower().endswith(".md")]
+            html_names = [n for n in names if n.lower().endswith(".html")]
+            # pehle .md; agar sab .md khaali nikle to .html se koshish
+            for group in (md_names, html_names):
+                for n in group:
+                    part = z.read(n).decode("utf-8", errors="replace").strip()
+                    if part:
+                        text_parts.append(part)
+                if text_parts:
+                    break
     return "\n\n".join(text_parts).strip()
+
+
+def _chat_content(resp) -> str:
+    """SDK response se text nikaalo — object/dict/parts-list sab shapes handle."""
+    try:
+        choice = resp.choices[0]
+    except (AttributeError, TypeError):
+        choice = resp["choices"][0]
+    msg = getattr(choice, "message", None)
+    if msg is None and isinstance(choice, dict):
+        msg = choice.get("message", {})
+    content = getattr(msg, "content", None)
+    if content is None and isinstance(msg, dict):
+        content = msg.get("content")
+    if isinstance(content, list):
+        content = "".join(
+            p.get("text", "") if isinstance(p, dict) else str(p) for p in content
+        )
+    return (content or "").strip()
 
 
 def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str) -> str:
@@ -119,13 +143,25 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
         "ढाँचे/शब्द-सुराग़ों पर आधारित संकेत दीजिए।)\n\n"
         f"--- निकाला गया पाठ ---\n{extracted[:12000]}\n--- समाप्त ---" + note
     )
-    resp = client.chat.completions(
-        model=SARVAM_CHAT_MODEL,
-        messages=[
-            {"role": "system", "content": TEACH_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        temperature=0.3,
-        max_tokens=2000,
+    result = ""
+    for _attempt in range(2):  # khaali jawab par ek baar dubara koshish
+        resp = client.chat.completions(
+            model=SARVAM_CHAT_MODEL,
+            messages=[
+                {"role": "system", "content": TEACH_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.3,
+            max_tokens=2000,
+        )
+        result = _chat_content(resp)
+        if result:
+            return result
+
+    # 105B khaali lauta — OCR paath to mila hai, use hi dikha dein
+    return (
+        "## ⚠️ ध्यान देने योग्य बातें\n"
+        "AI व्याख्या इस बार खाली लौटी (दो प्रयासों के बाद) — थोड़ी देर बाद फिर "
+        "आज़माइए। नीचे दस्तावेज़ से निकाला गया कच्चा पाठ है, ताकि आपकी मेहनत "
+        "बेकार न जाए:\n\n---\n\n" + extracted[:8000]
     )
-    return resp.choices[0].message.content
