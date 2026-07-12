@@ -174,7 +174,10 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
         "नीचे Sarvam Vision (OCR) से निकाला गया दस्तावेज़-पाठ है। इसी के आधार पर "
         "ऊपर बताए ढाँचे में सिखाइए। ('अगली बार ख़ुद ऐसे पढ़िए' खंड में दस्तावेज़ के "
         "ढाँचे/शब्द-सुराग़ों पर आधारित संकेत दीजिए।)\n\n"
-        f"--- निकाला गया पाठ ---\n{extracted[:12000]}\n--- समाप्त ---" + note
+        # Devanagari ~1 token/akshar tokenize hota hai — 12k chars + system prompt
+        # + max_tokens=2000 context ko overflow kar deta tha, jisse API 200 +
+        # KHAALI content (finish_reason=length) lautata tha. 6k surakshit hai.
+        f"--- निकाला गया पाठ ---\n{extracted[:6000]}\n--- समाप्त ---" + note
     )
     # Har model par 2 koshish; khaali/failed to agla model. Har attempt ka
     # nateeja diagnostics mein jaata hai taaki khaali jawab ka KARAN dikhe.
