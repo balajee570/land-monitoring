@@ -28,11 +28,32 @@ cp .streamlit/secrets.toml.example .streamlit/secrets.toml
 
 App in-app **🔐 सेटिंग** expander se bhi keys leta hai (sirf us session ke liye).
 
+> 🔒 **Keys kabhi repo mein commit mat kijiye.** `.gitignore` `secrets.toml` ko
+> block karta hai; repo mein sirf placeholder wala `secrets.toml.example` hai.
+
 ## Run
 
 ```bash
 streamlit run app.py
 ```
+
+## Deploy (Streamlit Community Cloud)
+
+Repo ko Streamlit Cloud se connect kijiye, phir keys **app ke Secrets manager
+mein direct** daaliye — repo mein nahi:
+
+1. App → **Settings → Secrets** kholiye
+2. Yeh paste kijiye (apni asli keys ke saath):
+
+```toml
+ANTHROPIC_API_KEY = "sk-ant-..."
+SARVAM_API_KEY = "..."
+```
+
+App `st.secrets` se keys automatically utha leta hai — koi code change nahi
+chahiye. Note: Streamlit Cloud par `user_data/` **ephemeral** hai — app
+restart par course progress reset ho sakta hai (local run mein persist hota
+hai).
 
 ## AI providers
 

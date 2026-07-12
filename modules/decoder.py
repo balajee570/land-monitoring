@@ -53,10 +53,11 @@ DEMO_RESULT = """## 📄 यह कौन-सा दस्तावेज़ ह
 def _secret(name: str) -> str:
     try:
         if name in st.secrets:
-            return st.secrets[name]
+            # cloud Secrets box mein paste ki gayi key mein stray space/newline aam hai
+            return str(st.secrets[name]).strip()
     except Exception:
         pass
-    return st.session_state.get(name, "")
+    return str(st.session_state.get(name, "")).strip()
 
 
 def _to_png_b64(raw: bytes, filename: str) -> tuple[str, Image.Image]:
