@@ -134,6 +134,31 @@ def _strip_think(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
 
 
+def _html_to_text(md: str) -> str:
+    """OCR ke HTML-table markup ko halka plain text banao.
+
+    Sarvam Vision <table><tr><td>… wala markdown lautata hai — tags chat model
+    ka aadha token-budget kha jaate hain aur samajh bhi bigaadte hain. Cells ko
+    ' | ' se, rows ko nayi line se jodkar saara markup hata do.
+    """
+    import html as _html
+
+    # OCR har tag alag line par deta hai — cell-band ko ' | ', row-band ko nayi
+    # line banao; table/tbody jaise dhaanche-tags nayi line chhodkar hatao.
+    text = re.sub(r"(?is)\s*</t[dh]>\s*", " | ", md)
+    text = re.sub(r"(?is)\s*</tr>\s*", "\n", text)
+    text = re.sub(r"(?is)\s*</?(?:table|thead|tbody|tfoot)[^>]*>\s*", "\n", text)
+    text = re.sub(r"(?is)<(?:tr|t[dh])[^>]*>\s*", "", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = _html.unescape(text)
+    text = re.sub(r"[ \t]*\|[ \t]*", " | ", text)         # pipe ke aaspaas ek-ek space
+    text = re.sub(r"[ \t]*\|[ \t]*(?=\n|$)", "", text)    # row-ant ka faltu pipe
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
 def _resp_summary(resp) -> str:
     """Khaali jawab par debugging ke liye response ka chhota, key-mukt saraansh."""
     try:
@@ -168,6 +193,10 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
 
     if not extracted:
         raise RuntimeError("Sarvam Vision से पाठ नहीं निकला — साफ़ फोटो/PDF आज़माइए।")
+
+    # HTML-table markup hatao — tags token-budget khaate hain aur model ko
+    # bhatkate hain; saaf text chhota bhi hai aur samajhne mein aasan bhi.
+    extracted = _html_to_text(extracted)
 
     note = f"\n\nउपयोगकर्ता की टिप्पणी: {user_note}" if user_note.strip() else ""
     user_msg = (
