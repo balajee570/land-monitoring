@@ -15,8 +15,8 @@ import requests
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_MODEL = "claude-sonnet-4-6"
-# 105b account par uplabdh na ho / khaali de to sarvam-m par gir jaao
-SARVAM_CHAT_MODELS = ("sarvam-105b", "sarvam-m")
+# API ke anusaar uplabdh model: sarvam-30b, sarvam-105b (sarvam-m deprecated)
+SARVAM_CHAT_MODELS = ("sarvam-105b", "sarvam-30b")
 SARVAM_CHAT_MODEL = SARVAM_CHAT_MODELS[0]  # purani import-compat ke liye
 # batch job kabhi-kabhi atak jaata hai — bina cap ke UI hamesha ke liye latak jaati hai
 SARVAM_JOB_TIMEOUT_S = 300
@@ -171,31 +171,26 @@ SARVAM_CHAT_URL = "https://api.sarvam.ai/v1/chat/completions"
 
 
 def _sarvam_chat_http(api_key: str, model: str, messages: list) -> tuple:
-    """Seedha REST call. Return (jawab, info) — jawab khaali ho to info mein
-    HTTP status + karan (key kabhi log nahi hoti).
+    """Seedha REST call. Return (jawab, info) — key kabhi log nahi hoti.
 
-    sarvam-105b ek REASONING model hai: pehle reasoning_content par tokens
-    kharch karta hai, phir asli content likhta hai. Chhota max_tokens dene par
-    poora budget sochne mein khatam -> finish_reason='length', content=None.
-    Isliye: bada budget + pehle kam-soch (reasoning_effort=low) ki koshish,
-    length par aur bade budget se dobara.
+    Do sabak seedhe production ke jawabon se:
+    (1) sarvam-105b REASONING model hai — chhota max_tokens poori soch mein
+        kharch ho kar content=None + finish_reason='length' deta hai;
+    (2) har subscription-tier ki max_tokens seema alag hai (starter: 4096) —
+        usse upar API 400 deta hai.
+    Isliye 4096 + reasoning_effort=low se shuru; tier-seema 400 ke sandesh se
+    padh kar apne-aap clamp ho jaati hai (kisi bhi tier par sahi).
     """
-    base = {"model": model, "messages": messages, "temperature": 0.3}
-    variants = [
-        {**base, "max_tokens": 6000, "reasoning_effort": "low"},
-        {**base, "max_tokens": 6000},     # agar reasoning_effort param reject ho
-        {**base, "max_tokens": 12000},    # agar phir bhi length par kat jaaye
-    ]
     last_info = "koi call nahi hui"
-    for payload in variants:
-        r = None
-        # Sarvam ke alag endpoints alag auth-header maangte hain — dono aazmao
+
+    def _post(payload):
+        nonlocal last_info
         for headers in (
             {"api-subscription-key": api_key},
             {"Authorization": f"Bearer {api_key}"},
         ):
             try:
-                resp = requests.post(
+                r = requests.post(
                     SARVAM_CHAT_URL,
                     headers={**headers, "Content-Type": "application/json"},
                     json=payload,
@@ -204,34 +199,48 @@ def _sarvam_chat_http(api_key: str, model: str, messages: list) -> tuple:
             except requests.RequestException as e:
                 last_info = f"network: {type(e).__name__}: {str(e)[:100]}"
                 continue
-            if resp.status_code in (401, 403):
-                last_info = f"HTTP {resp.status_code} ({list(headers)[0]}): {resp.text[:100]}"
+            if r.status_code in (401, 403):
+                last_info = f"HTTP {r.status_code} ({list(headers)[0]}): {r.text[:100]}"
                 continue  # doosre auth-header se koshish
-            r = resp
-            break
-        if r is None:
-            continue
-        if r.status_code != 200:
-            last_info = f"HTTP {r.status_code}: {r.text[:150]}"
-            if 400 <= r.status_code < 500:
-                continue  # shayad reasoning_effort param reject hua — agla variant
-            return "", last_info
-        try:
-            data = r.json()
-        except ValueError:
-            return "", f"HTTP 200 par JSON nahi: {r.text[:120]}"
-        result = _strip_think(_chat_content(data))
-        if result:
-            return result, "ok"
-        try:
-            finish = str(data["choices"][0].get("finish_reason"))
-        except Exception:
-            finish = "?"
-        last_info = (f"HTTP 200 khaali content (finish_reason={finish}, "
-                     f"max_tokens={payload['max_tokens']})")
-        if finish != "length":
-            return "", last_info
-        # length => reasoning ne budget kha liya — agli variant bade budget se
+            return r
+        return None
+
+    base = {"model": model, "messages": messages, "temperature": 0.3}
+    variants = [
+        {**base, "max_tokens": 4096, "reasoning_effort": "low"},
+        {**base, "max_tokens": 4096},   # agar reasoning_effort param reject ho
+    ]
+    for payload in variants:
+        clamped = False
+        while True:
+            r = _post(payload)
+            if r is None:
+                break
+            if r.status_code != 200:
+                last_info = f"HTTP {r.status_code}: {r.text[:150]}"
+                if r.status_code == 400:
+                    if "deprecated" in r.text.lower():
+                        return "", last_info  # model hi uplabdh nahi
+                    m = re.search(r"maximum allowed[^:]*:\s*(\d+)", r.text)
+                    if m and not clamped:
+                        payload = {**payload, "max_tokens": int(m.group(1))}
+                        clamped = True
+                        continue  # tier-seema ke andar dobara
+                break  # agli variant
+            try:
+                data = r.json()
+            except ValueError:
+                return "", f"HTTP 200 par JSON nahi: {r.text[:120]}"
+            result = _strip_think(_chat_content(data))
+            if result:
+                return result, "ok"
+            try:
+                finish = str(data["choices"][0].get("finish_reason"))
+            except Exception:
+                finish = "?"
+            last_info = (f"HTTP 200 khaali content (finish_reason={finish}, "
+                         f"max_tokens={payload['max_tokens']})")
+            break  # isi payload ko dohrana bekar — agli variant
     return "", last_info
 
 
@@ -267,27 +276,30 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
     extracted = _html_to_text(extracted)
 
     note = f"\n\nउपयोगकर्ता की टिप्पणी: {user_note}" if user_note.strip() else ""
-    user_msg = (
-        "नीचे Sarvam Vision (OCR) से निकाला गया दस्तावेज़-पाठ है। इसी के आधार पर "
-        "ऊपर बताए ढाँचे में सिखाइए। ('अगली बार ख़ुद ऐसे पढ़िए' खंड में दस्तावेज़ के "
-        "ढाँचे/शब्द-सुराग़ों पर आधारित संकेत दीजिए।)\n\n"
-        # Devanagari ~1 token/akshar tokenize hota hai — 12k chars + system prompt
-        # + max_tokens=2000 context ko overflow kar deta tha, jisse API 200 +
-        # KHAALI content (finish_reason=length) lautata tha. 6k surakshit hai.
-        f"--- निकाला गया पाठ ---\n{extracted[:6000]}\n--- समाप्त ---" + note
-    )
-    messages = [
-        {"role": "system", "content": TEACH_PROMPT},
-        {"role": "user", "content": user_msg},
-    ]
-    # SDK ke chat-wrapper ki jagah seedha REST — har vifalta HTTP status +
-    # body ke saath diagnostics mein dikhegi, andaaza lagana band.
     attempts = []
-    for model in SARVAM_CHAT_MODELS:
-        result, info = _sarvam_chat_http(api_key, model, messages)
-        if result:
-            return result
-        attempts.append(f"{model}: {info}")
+    # Pehle poora (6000) excerpt; agar reasoning tier-seema par bhi budget kha
+    # gaya (finish_reason=length) to chhote excerpt se dobara — kam padhna,
+    # kam sochna, jawab ke liye zyada jagah.
+    for excerpt_len in (6000, 2500):
+        user_msg = (
+            "नीचे Sarvam Vision (OCR) से निकाला गया दस्तावेज़-पाठ है। इसी के आधार पर "
+            "ऊपर बताए ढाँचे में सिखाइए। ('अगली बार ख़ुद ऐसे पढ़िए' खंड में दस्तावेज़ के "
+            "ढाँचे/शब्द-सुराग़ों पर आधारित संकेत दीजिए।)\n\n"
+            f"--- निकाला गया पाठ ---\n{extracted[:excerpt_len]}\n--- समाप्त ---" + note
+        )
+        messages = [
+            {"role": "system", "content": TEACH_PROMPT},
+            {"role": "user", "content": user_msg},
+        ]
+        got_length = False
+        for model in SARVAM_CHAT_MODELS:
+            result, info = _sarvam_chat_http(api_key, model, messages)
+            if result:
+                return result
+            attempts.append(f"{model}@{excerpt_len}: {info}")
+            got_length = got_length or "finish_reason=length" in info
+        if not got_length:
+            break  # chhota excerpt sirf length-samasya mein madad karta hai
 
     # Explanation nahi mili — OCR paath to mila hai, use hi dikha dein
     detail = " · ".join(attempts) if attempts else "कोई प्रयास दर्ज नहीं"
