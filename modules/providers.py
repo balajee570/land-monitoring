@@ -167,6 +167,50 @@ def _resp_summary(resp) -> str:
         return "<unrepr-able response>"
 
 
+SARVAM_CHAT_URL = "https://api.sarvam.ai/v1/chat/completions"
+
+
+def _sarvam_chat_http(api_key: str, model: str, messages: list) -> tuple:
+    """Seedha REST call. Return (jawab, info) — jawab khaali ho to info mein
+    HTTP status + body ka ansh (key kabhi log nahi hoti)."""
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.3,
+        "max_tokens": 2000,
+    }
+    last_info = "koi call nahi hui"
+    # Sarvam ke alag endpoints alag auth-header maangte hain — dono aazmao
+    for headers in (
+        {"api-subscription-key": api_key},
+        {"Authorization": f"Bearer {api_key}"},
+    ):
+        try:
+            r = requests.post(
+                SARVAM_CHAT_URL,
+                headers={**headers, "Content-Type": "application/json"},
+                json=payload,
+                timeout=90,
+            )
+        except requests.RequestException as e:
+            last_info = f"network: {type(e).__name__}: {str(e)[:100]}"
+            continue
+        if r.status_code in (401, 403):
+            last_info = f"HTTP {r.status_code} ({list(headers)[0]}): {r.text[:100]}"
+            continue  # doosre auth-header se koshish
+        if r.status_code != 200:
+            return "", f"HTTP {r.status_code}: {r.text[:150]}"
+        try:
+            data = r.json()
+        except ValueError:
+            return "", f"HTTP 200 par JSON nahi: {r.text[:120]}"
+        result = _strip_think(_chat_content(data))
+        if result:
+            return result, "ok"
+        return "", f"HTTP 200 khaali content: {str(data)[:180]}"
+    return "", last_info
+
+
 def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str) -> str:
     try:
         from sarvamai import SarvamAI
@@ -208,28 +252,21 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
         # KHAALI content (finish_reason=length) lautata tha. 6k surakshit hai.
         f"--- निकाला गया पाठ ---\n{extracted[:6000]}\n--- समाप्त ---" + note
     )
-    # Har model par 2 koshish; khaali/failed to agla model. Har attempt ka
-    # nateeja diagnostics mein jaata hai taaki khaali jawab ka KARAN dikhe.
+    messages = [
+        {"role": "system", "content": TEACH_PROMPT},
+        {"role": "user", "content": user_msg},
+    ]
+    # SDK ke chat-wrapper ki jagah seedha REST — har vifalta HTTP status +
+    # body ke saath diagnostics mein dikhegi, andaaza lagana band.
     attempts = []
     for model in SARVAM_CHAT_MODELS:
         for try_no in (1, 2):
-            try:
-                resp = client.chat.completions(
-                    model=model,
-                    messages=[
-                        {"role": "system", "content": TEACH_PROMPT},
-                        {"role": "user", "content": user_msg},
-                    ],
-                    temperature=0.3,
-                    max_tokens=2000,
-                )
-            except Exception as e:  # noqa: BLE001 — agla model aazmana hai
-                attempts.append(f"{model} #{try_no}: {type(e).__name__}: {str(e)[:120]}")
-                break  # isi model par dubara koshish bekar
-            result = _strip_think(_chat_content(resp))
+            result, info = _sarvam_chat_http(api_key, model, messages)
             if result:
                 return result
-            attempts.append(f"{model} #{try_no}: खाली उत्तर (raw: {_resp_summary(resp)})")
+            attempts.append(f"{model} #{try_no}: {info}")
+            if "HTTP 4" in info:  # 4xx par isi model ko dobara maarna bekar
+                break
 
     # Explanation nahi mili — OCR paath to mila hai, use hi dikha dein
     detail = " · ".join(attempts) if attempts else "कोई प्रयास दर्ज नहीं"
