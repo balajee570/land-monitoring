@@ -9,7 +9,6 @@ from data.curriculum import CURRICULUM, FINAL_BADGE, total_lessons
 from modules import calculator, decoder, glossary_page, lessons, ui
 from modules.progress import (
     completion_pct,
-    current_streak,
     earned_badges,
     get_state,
 )
@@ -27,7 +26,7 @@ with st.sidebar:
         f"""<div style="font-family:'Tiro Devanagari Hindi',serif;
         font-size:1.9rem;color:{ui.BASTA};line-height:1.1;">खतियान</div>
         <div style="font-size:0.9rem;opacity:0.85;margin-bottom:0.8rem;">
-        दादा जी पढ़ लेते थे। अब आप पढ़िए।</div>""",
+        पुराने काग़ज़, नई समझ — अपनी ज़मीन ख़ुद पढ़िए।</div>""",
         unsafe_allow_html=True,
     )
     nav = st.radio(
@@ -41,22 +40,24 @@ with st.sidebar:
 def _home():
     data = get_state()
     completed = set(data.get("completed", []))
+    earned = earned_badges(data)
 
-    ui.basta_header("खतियान", "दादा जी पढ़ लेते थे। अब आप पढ़िए।")
+    # बैज दीवार — L6 का बैज ही FINAL_BADGE है, दोहराव न हो
+    wall = [lv["badge"] for lv in CURRICULUM]
+    if FINAL_BADGE not in wall:
+        wall.append(FINAL_BADGE)
+
+    ui.basta_header("खतियान", "पुराने काग़ज़, नई समझ — अपनी ज़मीन ख़ुद पढ़िए।")
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("🔥 स्ट्रीक", f"{current_streak(data)} दिन")
+    m1.metric("🏵️ मुहरें", f"{len(earned & set(wall))}/{len(wall)}")
     m2.metric("📚 पाठ पूर्ण", f"{len(completed)}/{total_lessons()}")
     m3.metric("🔍 डिकोड किए", data.get("decodes_used", 0))
 
     st.progress(completion_pct(data))
     st.caption("पाठशाला प्रगति")
 
-    # बैज दीवार — L6 का बैज ही FINAL_BADGE है, दोहराव न हो
-    wall = [lv["badge"] for lv in CURRICULUM]
-    if FINAL_BADGE not in wall:
-        wall.append(FINAL_BADGE)
-    ui.muhar_badges(wall, earned_badges(data))
+    ui.muhar_badges(wall, earned)
 
     ui.register_card(
         "<b>📚 पाठशाला</b><br>छह स्तर, पंद्रह पाठ — काग़ज़ पहचानने से 'दादा स्तर' तक। "

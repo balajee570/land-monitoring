@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
-"""प्रगति — प्रोफ़ाइल, स्ट्रीक, बैज (लोकल JSON में सहेजा जाता है)"""
+"""प्रगति — प्रोफ़ाइल और बैज (लोकल JSON में सहेजा जाता है)"""
 
 import json
 import os
-from datetime import date, timedelta
 
 import streamlit as st
 
@@ -26,34 +25,13 @@ def load_profile(profile: str) -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {"name": profile, "completed": [], "active_days": [], "decodes_used": 0, "premium": False}
+    return {"name": profile, "completed": [], "decodes_used": 0, "premium": False}
 
 
 def save_profile(data: dict):
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(_path(data.get("name", "default")), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-def touch_today(data: dict):
-    today = date.today().isoformat()
-    if today not in data["active_days"]:
-        data["active_days"].append(today)
-        save_profile(data)
-
-
-def current_streak(data: dict) -> int:
-    days = set(data.get("active_days", []))
-    if not days:
-        return 0
-    streak, d = 0, date.today()
-    # आज सक्रिय नहीं तो कल से गिनें (streak टूटा नहीं माना जाए)
-    if d.isoformat() not in days:
-        d = d - timedelta(days=1)
-    while d.isoformat() in days:
-        streak += 1
-        d = d - timedelta(days=1)
-    return streak
 
 
 def mark_lesson_done(data: dict, lesson_id: str):

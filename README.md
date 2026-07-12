@@ -1,6 +1,6 @@
 # खतियान 📜
 
-**दादा जी पढ़ लेते थे। अब आप पढ़िए।**
+**पुराने काग़ज़, नई समझ — अपनी ज़मीन ख़ुद पढ़िए।**
 
 Hindi-first Streamlit app jo aapko Indian land records (Bihar focus) **padhna
 sikhata hai** — 6-level ka structured course, searchable शब्दकोश, zameen
@@ -75,7 +75,7 @@ hai).
 ## Privacy
 
 Documents aapki machine se bahar **sirf aapke chune hue AI provider** ko jaate
-hain — aur kahin nahi. Course progress/streak local `user_data/` folder mein
+hain — aur kahin nahi. Course progress local `user_data/` folder mein
 rehta hai; koi analytics/tracking nahi.
 
 ## Dev
