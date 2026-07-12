@@ -13,11 +13,17 @@ RULE = "#C9B893"       # फीकी रेखा
 
 
 def inject_css():
+    # Fonts alag call mein: <link> se shuru hone wala markdown HTML-block pehli
+    # khaali line par toot jaata hai, jisse aage ka CSS page par text ban jaata
+    # tha. <style> se shuru block </style> tak chalta hai — khaali lines safe.
     st.markdown(
-        f"""
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Hindi:ital@0;1&family=Mukta:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<style>
+        '<link rel="preconnect" href="https://fonts.googleapis.com">'
+        '<link href="https://fonts.googleapis.com/css2?family=Tiro+Devanagari+Hindi:ital@0;1'
+        '&family=Mukta:wght@300;400;500;600;700&display=swap" rel="stylesheet">',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"""<style>
 html, body, [class*="css"] {{
     font-family: 'Mukta', 'Noto Sans Devanagari', sans-serif;
     color: {INK};
