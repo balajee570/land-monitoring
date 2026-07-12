@@ -5,6 +5,7 @@
 
 import io
 import os
+import re
 import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +15,9 @@ import requests
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_MODEL = "claude-sonnet-4-6"
-SARVAM_CHAT_MODEL = "sarvam-105b"
+# 105b account par uplabdh na ho / khaali de to sarvam-m par gir jaao
+SARVAM_CHAT_MODELS = ("sarvam-105b", "sarvam-m")
+SARVAM_CHAT_MODEL = SARVAM_CHAT_MODELS[0]  # purani import-compat ke liye
 # batch job kabhi-kabhi atak jaata hai — bina cap ke UI hamesha ke liye latak jaati hai
 SARVAM_JOB_TIMEOUT_S = 300
 
@@ -126,6 +129,19 @@ def _chat_content(resp) -> str:
     return (content or "").strip()
 
 
+def _strip_think(text: str) -> str:
+    """Thinking-model output se <think>…</think> hatao — asli jawab bacha rahe."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+
+
+def _resp_summary(resp) -> str:
+    """Khaali jawab par debugging ke liye response ka chhota, key-mukt saraansh."""
+    try:
+        return repr(resp)[:200]
+    except Exception:
+        return "<unrepr-able response>"
+
+
 def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str) -> str:
     try:
         from sarvamai import SarvamAI
@@ -160,25 +176,35 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
         "ढाँचे/शब्द-सुराग़ों पर आधारित संकेत दीजिए।)\n\n"
         f"--- निकाला गया पाठ ---\n{extracted[:12000]}\n--- समाप्त ---" + note
     )
-    result = ""
-    for _attempt in range(2):  # khaali jawab par ek baar dubara koshish
-        resp = client.chat.completions(
-            model=SARVAM_CHAT_MODEL,
-            messages=[
-                {"role": "system", "content": TEACH_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
-            temperature=0.3,
-            max_tokens=2000,
-        )
-        result = _chat_content(resp)
-        if result:
-            return result
+    # Har model par 2 koshish; khaali/failed to agla model. Har attempt ka
+    # nateeja diagnostics mein jaata hai taaki khaali jawab ka KARAN dikhe.
+    attempts = []
+    for model in SARVAM_CHAT_MODELS:
+        for try_no in (1, 2):
+            try:
+                resp = client.chat.completions(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": TEACH_PROMPT},
+                        {"role": "user", "content": user_msg},
+                    ],
+                    temperature=0.3,
+                    max_tokens=2000,
+                )
+            except Exception as e:  # noqa: BLE001 — agla model aazmana hai
+                attempts.append(f"{model} #{try_no}: {type(e).__name__}: {str(e)[:120]}")
+                break  # isi model par dubara koshish bekar
+            result = _strip_think(_chat_content(resp))
+            if result:
+                return result
+            attempts.append(f"{model} #{try_no}: खाली उत्तर (raw: {_resp_summary(resp)})")
 
-    # 105B khaali lauta — OCR paath to mila hai, use hi dikha dein
+    # Explanation nahi mili — OCR paath to mila hai, use hi dikha dein
+    detail = " · ".join(attempts) if attempts else "कोई प्रयास दर्ज नहीं"
     return (
         "## ⚠️ ध्यान देने योग्य बातें\n"
-        "AI व्याख्या इस बार खाली लौटी (दो प्रयासों के बाद) — थोड़ी देर बाद फिर "
-        "आज़माइए। नीचे दस्तावेज़ से निकाला गया कच्चा पाठ है, ताकि आपकी मेहनत "
-        "बेकार न जाए:\n\n---\n\n" + extracted[:8000]
+        "AI व्याख्या नहीं मिल पाई — नीचे दस्तावेज़ से निकाला गया कच्चा पाठ है, "
+        "ताकि आपकी मेहनत बेकार न जाए।\n\n"
+        f"<small>तकनीकी विवरण (support के लिए): {detail}</small>\n\n"
+        "---\n\n" + extracted[:8000]
     )
