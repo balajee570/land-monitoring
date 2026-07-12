@@ -135,7 +135,7 @@ def render():
                     return
                 _, img = _to_png_b64(raw, uploaded.name)
                 st.image(img, caption="अपलोड किया गया दस्तावेज़", use_container_width=True)
-                with st.spinner("Sarvam Vision job चल रहा है… (batch API — 1–3 मिनट लग सकते हैं)"):
+                with st.spinner("Sarvam Vision job चल रहा है… (batch API — 1–3 मिनट; अधिकतम 5 मिनट प्रतीक्षा)"):
                     result = decode_sarvam(raw, uploaded.name, key, user_note)
             else:
                 key = _secret("ANTHROPIC_API_KEY")
@@ -154,15 +154,21 @@ def render():
 
             data["decodes_used"] = data.get("decodes_used", 0) + 1
             save_profile(data)
-            st.markdown("---")
-            st.markdown(result)
-            st.download_button(
-                "⬇️ व्याख्या सहेजिए (.md)", result,
-                file_name="khatiyan_decode.md", mime="text/markdown",
-            )
+            # session_state mein rakho — lambi batch call ke baad hone wala
+            # rerun warna taiyaar result ko chupchaap uda deta tha
+            st.session_state["last_decode_md"] = result
         except requests.HTTPError as e:
             st.error(f"AI सेवा से त्रुटि (HTTP {e.response.status_code})। Key/इंटरनेट जाँचिए।")
         except Exception as e:
             st.error(f"कुछ गड़बड़ हुई: {e}")
+
+    saved = st.session_state.get("last_decode_md", "")
+    if saved:
+        st.markdown("---")
+        st.markdown(saved)
+        st.download_button(
+            "⬇️ व्याख्या सहेजिए (.md)", saved,
+            file_name="khatiyan_decode.md", mime="text/markdown",
+        )
 
     ui.disclaimer()

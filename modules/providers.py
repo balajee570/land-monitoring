@@ -7,12 +7,16 @@ import io
 import os
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 
 import requests
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_MODEL = "claude-sonnet-4-6"
 SARVAM_CHAT_MODEL = "sarvam-105b"
+# batch job kabhi-kabhi atak jaata hai — bina cap ke UI hamesha ke liye latak jaati hai
+SARVAM_JOB_TIMEOUT_S = 300
 
 TEACH_PROMPT = """आप 'खतियान' ऐप के भूमि-दस्तावेज़ शिक्षक हैं — बिहार/हिंदी पट्टी के ज़मीन के काग़ज़ों (खतियान, जमाबंदी, केवाला, लगान रसीद, एल.पी.सी., नक्शा) के विशेषज्ञ। आपका काम सिर्फ़ बताना नहीं, **पढ़ना सिखाना** है।
 
@@ -132,7 +136,20 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
 
     client = SarvamAI(api_subscription_key=api_key)
 
-    extracted = _sarvam_extract_text(client, file_bytes, filename)
+    # Vision job ko hard timeout ke saath chalao — warna atka job UI ko
+    # hamesha ke liye latka deta hai (koi result, koi error nahi).
+    executor = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = executor.submit(_sarvam_extract_text, client, file_bytes, filename)
+        extracted = future.result(timeout=SARVAM_JOB_TIMEOUT_S)
+    except FutureTimeout:
+        raise RuntimeError(
+            f"Sarvam Vision job {SARVAM_JOB_TIMEOUT_S // 60} मिनट में पूरा नहीं हुआ — "
+            "थोड़ी देर बाद दुबारा आज़माइए, या छोटी/साफ़ फोटो (एक पन्ना) भेजिए।"
+        )
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
     if not extracted:
         raise RuntimeError("Sarvam Vision से पाठ नहीं निकला — साफ़ फोटो/PDF आज़माइए।")
 
