@@ -172,34 +172,50 @@ SARVAM_CHAT_URL = "https://api.sarvam.ai/v1/chat/completions"
 
 def _sarvam_chat_http(api_key: str, model: str, messages: list) -> tuple:
     """Seedha REST call. Return (jawab, info) — jawab khaali ho to info mein
-    HTTP status + body ka ansh (key kabhi log nahi hoti)."""
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": 2000,
-    }
+    HTTP status + karan (key kabhi log nahi hoti).
+
+    sarvam-105b ek REASONING model hai: pehle reasoning_content par tokens
+    kharch karta hai, phir asli content likhta hai. Chhota max_tokens dene par
+    poora budget sochne mein khatam -> finish_reason='length', content=None.
+    Isliye: bada budget + pehle kam-soch (reasoning_effort=low) ki koshish,
+    length par aur bade budget se dobara.
+    """
+    base = {"model": model, "messages": messages, "temperature": 0.3}
+    variants = [
+        {**base, "max_tokens": 6000, "reasoning_effort": "low"},
+        {**base, "max_tokens": 6000},     # agar reasoning_effort param reject ho
+        {**base, "max_tokens": 12000},    # agar phir bhi length par kat jaaye
+    ]
     last_info = "koi call nahi hui"
-    # Sarvam ke alag endpoints alag auth-header maangte hain — dono aazmao
-    for headers in (
-        {"api-subscription-key": api_key},
-        {"Authorization": f"Bearer {api_key}"},
-    ):
-        try:
-            r = requests.post(
-                SARVAM_CHAT_URL,
-                headers={**headers, "Content-Type": "application/json"},
-                json=payload,
-                timeout=90,
-            )
-        except requests.RequestException as e:
-            last_info = f"network: {type(e).__name__}: {str(e)[:100]}"
+    for payload in variants:
+        r = None
+        # Sarvam ke alag endpoints alag auth-header maangte hain — dono aazmao
+        for headers in (
+            {"api-subscription-key": api_key},
+            {"Authorization": f"Bearer {api_key}"},
+        ):
+            try:
+                resp = requests.post(
+                    SARVAM_CHAT_URL,
+                    headers={**headers, "Content-Type": "application/json"},
+                    json=payload,
+                    timeout=120,
+                )
+            except requests.RequestException as e:
+                last_info = f"network: {type(e).__name__}: {str(e)[:100]}"
+                continue
+            if resp.status_code in (401, 403):
+                last_info = f"HTTP {resp.status_code} ({list(headers)[0]}): {resp.text[:100]}"
+                continue  # doosre auth-header se koshish
+            r = resp
+            break
+        if r is None:
             continue
-        if r.status_code in (401, 403):
-            last_info = f"HTTP {r.status_code} ({list(headers)[0]}): {r.text[:100]}"
-            continue  # doosre auth-header se koshish
         if r.status_code != 200:
-            return "", f"HTTP {r.status_code}: {r.text[:150]}"
+            last_info = f"HTTP {r.status_code}: {r.text[:150]}"
+            if 400 <= r.status_code < 500:
+                continue  # shayad reasoning_effort param reject hua — agla variant
+            return "", last_info
         try:
             data = r.json()
         except ValueError:
@@ -207,7 +223,15 @@ def _sarvam_chat_http(api_key: str, model: str, messages: list) -> tuple:
         result = _strip_think(_chat_content(data))
         if result:
             return result, "ok"
-        return "", f"HTTP 200 khaali content: {str(data)[:180]}"
+        try:
+            finish = str(data["choices"][0].get("finish_reason"))
+        except Exception:
+            finish = "?"
+        last_info = (f"HTTP 200 khaali content (finish_reason={finish}, "
+                     f"max_tokens={payload['max_tokens']})")
+        if finish != "length":
+            return "", last_info
+        # length => reasoning ne budget kha liya — agli variant bade budget se
     return "", last_info
 
 
@@ -260,13 +284,10 @@ def decode_sarvam(file_bytes: bytes, filename: str, api_key: str, user_note: str
     # body ke saath diagnostics mein dikhegi, andaaza lagana band.
     attempts = []
     for model in SARVAM_CHAT_MODELS:
-        for try_no in (1, 2):
-            result, info = _sarvam_chat_http(api_key, model, messages)
-            if result:
-                return result
-            attempts.append(f"{model} #{try_no}: {info}")
-            if "HTTP 4" in info:  # 4xx par isi model ko dobara maarna bekar
-                break
+        result, info = _sarvam_chat_http(api_key, model, messages)
+        if result:
+            return result
+        attempts.append(f"{model}: {info}")
 
     # Explanation nahi mili — OCR paath to mila hai, use hi dikha dein
     detail = " · ".join(attempts) if attempts else "कोई प्रयास दर्ज नहीं"
