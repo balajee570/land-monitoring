@@ -12,7 +12,7 @@ import streamlit as st
 from PIL import Image
 
 from modules import ui
-from modules.progress import get_state, save_profile, touch_today
+from modules.progress import get_state, save_profile
 from modules.providers import decode_anthropic, decode_sarvam
 
 DEMO_RESULT = """## 📄 यह कौन-सा दस्तावेज़ है
@@ -154,7 +154,6 @@ def render():
 
             data["decodes_used"] = data.get("decodes_used", 0) + 1
             save_profile(data)
-            touch_today(data)
             st.markdown("---")
             st.markdown(result)
             st.download_button(

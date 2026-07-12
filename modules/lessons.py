@@ -5,7 +5,7 @@ import streamlit as st
 
 from data.curriculum import CURRICULUM
 from modules import ui
-from modules.progress import get_state, mark_lesson_done, touch_today, earned_badges
+from modules.progress import get_state, mark_lesson_done, earned_badges
 
 
 def _quiz(lesson: dict, data: dict):
@@ -43,7 +43,6 @@ def _quiz(lesson: dict, data: dict):
                 )
         if correct == len(qs):
             mark_lesson_done(data, lesson["id"])
-            touch_today(data)
             st.balloons()
             st.success(f"🎉 पाठ **{lesson['title']}** पूर्ण! प्रगति सहेज ली गई।")
         else:
